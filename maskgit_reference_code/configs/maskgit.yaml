@@ -1,0 +1,41 @@
+# choose device. if device < 0, so 'cpu' is chosen. Otherwise, it indicates gpu id 
+device: 0
+
+# log
+logdir: logs/maskgit  # the folder to save log
+max_epoch: 
+
+# train, test
+run: train
+
+# random seed
+rand_seed: -1
+
+# model config
+model:
+  n_layers: 
+
+# dataset
+data:
+  train:
+    root_dir: 
+    filelist: 
+    is_train: True
+    batch_size: 
+    shuffle: True
+  
+  test: 
+    root_dir: 
+    filelist: 
+    batch_size: 
+    shuffle: False
+
+# optimizer
+optimizer: 
+  type: adamw
+  weight_decay: 0.01
+  base_lr: 0.0001
+
+# scheuler
+scheduler:
+
