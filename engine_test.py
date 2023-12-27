@@ -22,6 +22,7 @@ def test_tokenizer(model, test_loader, args, MAXNUM=100):
     for iter, (inputs, _) in enumerate(test_loader):
         
         # forward
+        inputs = inputs.to(args.device)
         recons = model.reconstruct(inputs)
 
         loss = F.mse_loss(recons, inputs)

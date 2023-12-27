@@ -84,7 +84,7 @@ if __name__ == '__main__':
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999), weight_decay=args.weight_decay)
     
     # get writer
-    args.description = f'{args.mode}_' + args.description + f'_{datetime.now().strftime("%Y-%m-%d-%H-%M")}'
+    args.description = f'{args.mode}_' + args.description + f'_{datetime.now().strftime("%Y-%m-%d-%H")}'
     if args.mode in ['train_tokenizer']:
         writer = SummaryWriter(f'exp/{args.description}')
 
