@@ -29,6 +29,7 @@ def train_tokenizer(model, train_loader, optimizer, writer, args):
             optimizer.zero_grad()
             
             # forward
+            inputs = inputs.to(args.device)
             outputs = model(inputs) # [recons, input, vq_loss]
     
             # get loss
