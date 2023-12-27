@@ -47,10 +47,10 @@ if __name__ == '__main__':
             in_channels=3,
             embedding_dim=256,
             num_embeddings=512,
-            hidden_dims=[128,256],
+            hidden_dims=[64, 128, 256],
             img_size=32,
-            encoder_depth=4,
-            decoder_depth=4,
+            encoder_depth=2,
+            decoder_depth=2,
         )
         # will be replaced by using config (yaml or py) 
     else:
