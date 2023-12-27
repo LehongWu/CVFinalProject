@@ -62,6 +62,14 @@ if __name__ == '__main__':
         checkpoint_model = checkpoint['model_state_dict']
         msg = model.load_state_dict(checkpoint_model, strict=False)
         print(msg)
+
+    # device
+    if torch.cuda.is_available():
+        args.device = "cuda"
+    else:
+        args.device = "cpu"
+    print(f'Using Device {args.device}')
+    model = model.to(args.device)
     
     # get dataset
     if args.dataset == 'cifar10':
