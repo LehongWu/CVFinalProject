@@ -21,6 +21,7 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='train_tokenizer')
     parser.add_argument('--description', type=str, default='exp')
     parser.add_argument('--print_every_iter', type=int, default=40)
+    parser.add_argument('--save_every_epoch', type=int, default=5)
     # data
     parser.add_argument('--dataset', type=str, default='cifar10')
     # model
@@ -94,3 +95,5 @@ if __name__ == '__main__':
         test_tokenizer(model, test_loader, args)
     else:
         raise NotImplementedError
+    
+    print('Finished.')

@@ -44,7 +44,7 @@ def train_tokenizer(model, train_loader, optimizer, writer, args):
             meter_recons_loss.update(recons_loss.item())
             meter_vq_loss.update(vq_loss.item())
             
-            # write
+            # write every k iters
             if (iter+1) % args.print_every_iter == 0:
                 msg = f'[Epoch] {epoch} [iter] {iter+1} [Loss] {loss.item():.4f}({meter_loss.avg():.4f}) ' + \
                     f'[Recons_Loss] {recons_loss.item():.4f}({meter_recons_loss.avg():.4f}) ' + \
@@ -54,7 +54,7 @@ def train_tokenizer(model, train_loader, optimizer, writer, args):
 
             optimizer.step()
         
-        # write
+        # write every epoch
         to_write = {
             "Loss": meter_loss.avg(),
             "Recons_Loss": meter_recons_loss.avg(),
@@ -68,14 +68,15 @@ def train_tokenizer(model, train_loader, optimizer, writer, args):
             msg += f"[{k}] {v:.6f}  "
         print(msg)
 
-        # save checkpoint
-        save_path = f'ckpt/{args.model}_lr{args.lr}_{args.description}'
-        os.makedirs(save_path, exist_ok=True)
-        save_path += f'/ep{epoch}.pt'
-        torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-                'args': args,
-                }, save_path)
+        # save checkpoint every k epoch
+        if (epoch+1) % args.save_every_epoch == 0 or epoch+1 == args.epochs:
+            save_path = f'ckpt/{args.model}_lr{args.lr}_{args.description}'
+            os.makedirs(save_path, exist_ok=True)
+            save_path += f'/ep{epoch}.pt'
+            torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'loss': loss,
+                    'args': args,
+                    }, save_path)

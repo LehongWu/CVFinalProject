@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+*.npz
+*.zip
+*.7z
+*.pth
+
+exp
+ckpt
+datasets
+visualize
