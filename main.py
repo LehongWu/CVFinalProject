@@ -21,6 +21,7 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='train_tokenizer')
     parser.add_argument('--description', type=str, default='exp')
     parser.add_argument('--print_every_iter', type=int, default=40)
+    parser.add_argument('--save_every_epoch', type=int, default=5)
     # data
     parser.add_argument('--dataset', type=str, default='cifar10')
     # model
@@ -46,10 +47,10 @@ if __name__ == '__main__':
             in_channels=3,
             embedding_dim=256,
             num_embeddings=512,
-            hidden_dims=[128,256],
+            hidden_dims=[64, 128, 256],
             img_size=32,
-            encoder_depth=4,
-            decoder_depth=4,
+            encoder_depth=2,
+            decoder_depth=2,
         )
         # will be replaced by using config (yaml or py) 
     else:
@@ -83,7 +84,7 @@ if __name__ == '__main__':
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999), weight_decay=args.weight_decay)
     
     # get writer
-    args.description = f'{args.mode}_' + args.description + f'_{datetime.now().strftime("%Y-%m-%d-%H-%M")}'
+    args.description = f'{args.mode}_' + args.description + f'_{datetime.now().strftime("%Y-%m-%d-%H")}'
     if args.mode in ['train_tokenizer']:
         writer = SummaryWriter(f'exp/{args.description}')
 
@@ -94,3 +95,5 @@ if __name__ == '__main__':
         test_tokenizer(model, test_loader, args)
     else:
         raise NotImplementedError
+    
+    print('Finished.')

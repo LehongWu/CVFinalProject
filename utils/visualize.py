@@ -12,7 +12,7 @@ def save_img(img, path):
     img: [3, H, W] or [H, W, 3]
     '''
     if isinstance(img, torch.Tensor): # to numpy
-        img = img.numpy() 
+        img = img.cpu().numpy() 
 
     assert len(img.shape) == 3
 

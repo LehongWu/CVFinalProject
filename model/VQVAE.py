@@ -5,6 +5,7 @@ from typing import List, Callable, Union, Any, TypeVar
 import torch.nn.functional as F
 from abc import abstractmethod
 
+### VQVAE ver2 ###
 class VectorQuantizer(nn.Module):
     """
     Reference:
@@ -55,20 +56,45 @@ class VectorQuantizer(nn.Module):
 
         return quantized_latents.permute(0, 3, 1, 2).contiguous(), vq_loss  # [B x D x H x W]
     
+
 class ResidualLayer(nn.Module):
 
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(self, 
+                 in_channels: int, 
+                 out_channels: int,
+                 img_size: int,
+                 activation_layer: nn.Module = nn.SiLU,
+                 norm_layer: nn.Module = nn.LayerNorm,
+                 ):
         super(ResidualLayer, self).__init__()
 
-        self.resblock = nn.Sequential(
-            nn.ReLU(True),
+        self.net = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.ReLU(True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False)
+            norm_layer([out_channels, img_size, img_size]),
+            activation_layer(),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            norm_layer([out_channels, img_size, img_size]),
+            activation_layer(),
         )
+        
+        if in_channels == out_channels:
+            self.residual = nn.Identity()
+        else:
+            self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
 
     def forward(self, input: Tensor) -> Tensor:
-        return input + self.resblock(input)
+        res = self.residual(input)
+        out = self.net(input)
+        return res + out
+
+
+class ResizeLayer(nn.Module):
+    def __init__(self, target_size):
+        super().__init__()
+        self.target_size = target_size
+
+    def forward(self, x):
+        return torch.nn.functional.interpolate(x, size=self.target_size)
 
 
 class VQVAE(nn.Module):
@@ -82,6 +108,8 @@ class VQVAE(nn.Module):
                  decoder_depth: int = 6,
                  beta: float = 0.25,
                  img_size: int = 32,
+                 activation_layer: nn.Module = nn.SiLU,
+                 norm_layer: nn.Module = nn.LayerNorm,
                  **kwargs) -> None:
         super(VQVAE, self).__init__()
 
@@ -95,27 +123,26 @@ class VQVAE(nn.Module):
 
         modules = []
         if hidden_dims is None:
-            hidden_dims = [128, 256]
+            hidden_dims = [64, 128, 256]
+
+        self.hidden_dims = hidden_dims
+        img_sizes = [img_size // (2 ** i) for i in range(len(hidden_dims))]
 
         #-------------------------------------------------------------------------------------------
         # Build Encoder
-        for h_dim in hidden_dims:
-            modules.append(
-                nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels=h_dim, kernel_size=4, stride=2, padding=1),
-                    nn.LeakyReLU()
-                )
-            )
-            in_channels = h_dim
+        modules.append(
+            ResidualLayer(in_channels, hidden_dims[0], img_size, activation_layer, norm_layer)
+        )
 
+        for i in range(len(hidden_dims)-1):
+            modules.append(ResidualLayer(hidden_dims[i], hidden_dims[i+1], img_sizes[i], activation_layer, norm_layer))
+            modules.append(ResizeLayer(img_sizes[i+1]))
+        
         for _ in range(self.encoder_depth):
-            modules.append(ResidualLayer(in_channels, in_channels))
+            modules.append(ResidualLayer(hidden_dims[-1], hidden_dims[-1], img_sizes[-1], activation_layer, norm_layer))
 
         modules.append(
-            nn.Sequential(
-                nn.LeakyReLU(), 
-                nn.Conv2d(in_channels, embedding_dim, kernel_size=1, stride=1),
-                nn.LeakyReLU())
+            nn.Conv2d(hidden_dims[-1], embedding_dim, kernel_size=1, stride=1),
         )
 
         self.encoder = nn.Sequential(*modules)
@@ -130,37 +157,22 @@ class VQVAE(nn.Module):
         modules.append(
             nn.Sequential(
                 nn.Conv2d(embedding_dim, hidden_dims[-1], kernel_size=3, stride=1, padding=1),
-                nn.LeakyReLU()
+                norm_layer([hidden_dims[-1], img_sizes[-1], img_sizes[-1]]),
+                activation_layer()
             )
         )
 
         for _ in range(self.decoder_depth):
-            modules.append(ResidualLayer(hidden_dims[-1], hidden_dims[-1]))
+            modules.append(ResidualLayer(hidden_dims[-1], hidden_dims[-1], img_sizes[-1], activation_layer, norm_layer))
 
-        hidden_dims.reverse()
+        for i in range(len(hidden_dims)-1, 0, -1):
+            modules.append(ResidualLayer(hidden_dims[i], hidden_dims[i-1], img_sizes[i], activation_layer, norm_layer))
+            modules.append(ResizeLayer(img_sizes[i-1]))
 
-        for i in range(len(hidden_dims)-1):
-            modules.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(hidden_dims[i],
-                                       hidden_dims[i+1],
-                                       kernel_size=4,
-                                       stride=2,
-                                       padding=1),
-                    nn.LeakyReLU())
-            )
 
         modules.append(
-            nn.Sequential(
-                nn.ConvTranspose2d(hidden_dims[-1],
-                                   out_channels=self.in_channels,
-                                   kernel_size=4,
-                                   stride=2, 
-                                   padding=1),
-                nn.Tanh(),
-                nn.Upsample((img_size, img_size))
-            )
-        ) # only for MNIST datasets to upsample at size (28, 28)
+            nn.Conv2d(hidden_dims[0], in_channels, kernel_size=3, stride=1, padding=1)
+        )
 
         self.decoder = nn.Sequential(*modules)
         #-------------------------------------------------------------------------------------------
