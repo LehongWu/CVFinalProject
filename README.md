@@ -15,3 +15,6 @@ exp: tensorboard outputs
 ckpt: checkpoints  
 visualize: visualization(testing) results  
 
+## Assets
+Assets folder provides pre-trained checkpoints, using Git LFS (while ckpt folder is generated when running the code, they are different)
+
