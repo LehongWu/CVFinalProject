@@ -5,6 +5,7 @@ from typing import List, Callable, Union, Any, TypeVar
 import torch.nn.functional as F
 from abc import abstractmethod
 
+### VQVAE ver2 ###
 class VectorQuantizer(nn.Module):
     """
     Reference:
