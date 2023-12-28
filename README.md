@@ -18,6 +18,6 @@ visualize: visualization(testing) results
 ## Assets
 Assets folder provides pre-trained checkpoints, using Git LFS (while ckpt folder is generated when running the code, they are different)
 
-Step1 Install Git LFS (follow online tutorials).
+Step1 Install Git LFS (follow online tutorials).  
 Step2 When pulling, large files will not be pulled. If you want to pull large files, run "git lfs pull".
 
