@@ -10,13 +10,15 @@ from datetime import datetime
 
 from model.VQVAE import VQVAE
 from feeder.cifar10 import get_cifar10_loader
+from feeder.tiny_image_net import get_tiny_image_net_loader
+from feeder.mnist import get_mnist_loader
 from engine_train import train_tokenizer
 from engine_test import test_tokenizer
 
 
 if __name__ == '__main__':
     import argparse
-    
+    # python main.py --dataset tiny_image_net
     parser = argparse.ArgumentParser(description='The configs')
     parser.add_argument('--mode', type=str, default='train_tokenizer')
     parser.add_argument('--description', type=str, default='exp')
@@ -43,12 +45,17 @@ if __name__ == '__main__':
     
     # get model
     if args.model == 'vqvae':
+        img_size = 32
+        if args.dataset == 'tiny_image_net':
+            img_size = 64
+        elif args.dataset == 'mnist':
+            img_size = 28
         model = VQVAE(
             in_channels=3,
             embedding_dim=256,
             num_embeddings=512,
             hidden_dims=[64, 128, 256],
-            img_size=32,
+            img_size=img_size,
             encoder_depth=2,
             decoder_depth=2,
         )
@@ -76,6 +83,12 @@ if __name__ == '__main__':
     if args.dataset == 'cifar10':
         train_loader = get_cifar10_loader(split='train', args=args)
         test_loader = get_cifar10_loader(split='test', args=args)
+    elif args.dataset == 'tiny_image_net':
+        train_loader = get_tiny_image_net_loader(split='train', args=args)
+        test_loader = get_tiny_image_net_loader(split='test', args=args)
+    elif args.dataset == 'mnist':
+        train_loader = get_mnist_loader(split='train', args=args)
+        test_loader = get_mnist_loader(split='test', args=args)
     else:
         raise NotImplementedError
     

@@ -16,19 +16,20 @@ transform = transforms.Compose([
 '''
 
 def get_transform_from_args(args=None):
-    
+    transform_list = []
+    if args.dataset == 'mnist':
+        transform_list.append(transforms.Grayscale(3))
     if 'train' in args.mode:
-        transform_list = [
+        transform_list += [
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     else:
-        transform_list = [
+        transform_list += [
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
-
     transform = transforms.Compose(transform_list)
     return transform
