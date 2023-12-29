@@ -17,4 +17,4 @@ visualize: visualization(testing) results
 
 ## Assets
 Provide pre-trained checkpoints.
-Download pretrained tokenizer (here.)[https://drive.google.com/drive/folders/1cKtNKXvXgCjHyubQT3qI35A0ap5gTYi5]
+Download pretrained tokenizer [here.](https://drive.google.com/drive/folders/1cKtNKXvXgCjHyubQT3qI35A0ap5gTYi5)
