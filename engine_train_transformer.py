@@ -6,6 +6,7 @@ import os
 
 from utils.tools import AvgMeter
 from utils.lr_sched import adjust_learning_rate
+from utils.visualize import save_img
 
 def train_transformer(model, input_generator, train_loader, optimizer, writer, args):
     '''
@@ -30,15 +31,48 @@ def train_transformer(model, input_generator, train_loader, optimizer, writer, a
             
             # embedding and mask
             inputs = inputs.to(args.device)
+
             mask_ratio = random.random()
+            mask_ratio = max(0.1, mask_ratio)
+            mask_ratio = min(0.75, mask_ratio) # 保证mask ratio不大不小（太小没有意义，太大影响训练）
+
             tokens, mask, gt = input_generator.generate_all(inputs, mask_ratio)
-            tokens = tokens.to(args.device)
-            mask = mask.to(args.device)
-            gt = gt.to(args.device)
+
+            tokens_ = tokens.to(args.device)
+            mask_ = mask.to(args.device)
+            gt_ = gt.to(args.device)
+
             # forward
-            loss = model.forward_loss(tokens, gt, mask) # ce loss
-            
+            loss, pred_indexes = model.forward_loss(tokens_, gt_, mask_) # ce loss
             loss.backward()
+
+            # show some results
+            if iter == 1:
+                print("mask ratio:", mask_ratio)
+                N = pred_indexes.shape[0]
+                D = 256
+                H = 8
+                W = 8
+                with torch.no_grad():
+                    pred_tokens = input_generator.vqvae.vq_layer.indexes2tokens(pred_indexes)
+                    pred_tokens[~mask] = tokens_[~mask]
+
+                    latent = pred_tokens.permute(0, 2, 1).contiguous().view(N, D, H, W)
+                    recons = input_generator.vqvae.decode(latent)
+                
+                # 用于可视化训练过程中重建效果的代码
+                dir = dir = f'visualize/transformer/reconstruct'
+                if not os.path.exists(dir):
+                    os.makedirs(dir)
+                idx = 0
+                for i in range(recons.shape[0]):
+                    img = inputs[i]
+                    path = dir + f'/{idx}_ori.jpg'
+                    img_recons = recons[i]
+                    path_recons = dir + f'/{idx}.jpg'
+                    save_img(img, path)
+                    save_img(img_recons, path_recons)
+                    idx += 1
 
             # update statistics
             ce_loss.update(loss.item())

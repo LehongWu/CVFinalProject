@@ -80,6 +80,20 @@ class VectorQuantizer(nn.Module):
         quantized_latents = torch.matmul(encoding_one_hot, self.embedding.weight)  # [D]
 
         return quantized_latents
+    
+    def indexes2tokens(self, indexes: Tensor) -> Tensor:
+        """
+        input: [B, L]
+        """
+        B, L = indexes.shape
+        indexes = indexes.view(-1).unsqueeze(1) # [BHW, 1]
+        device = indexes.device
+        encoding_one_hot = torch.zeros(indexes.size(0), self.K, device=device)
+        encoding_one_hot.scatter_(1, indexes, 1)  # [BHW x K]
+
+        quantized_latents = torch.matmul(encoding_one_hot, self.embedding.weight)  # [BHW, D]
+        quantized_latents = quantized_latents.view(B, L, -1)  # [B, L, D]
+        return quantized_latents
 
 class ResidualLayer(nn.Module):
 

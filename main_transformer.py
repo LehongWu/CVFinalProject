@@ -29,15 +29,15 @@ if __name__ == '__main__':
     # model
     parser.add_argument('--model', type=str, default='transformer')
     parser.add_argument('--resume', action='store_true')
-    parser.add_argument('--ckpt', type=str, default='transformer_ckpt/transformer_lr0.0003_train_transformer_exp_2023-12-29-21/ep49.pt')
+    parser.add_argument('--ckpt', type=str, default='./transformer_ckpt/transformer_lr0.0003_train_transformer_exp_2024-01-16-19\ep389.pt')
     # training
     parser.add_argument('--epochs', type=int, default=400)
     parser.add_argument('--start_epoch', type=int, default=0)
-    parser.add_argument('--warmup_epochs', type=int, default=5)
+    parser.add_argument('--warmup_epochs', type=int, default=20)
     parser.add_argument('--min_lr_epochs', type=int, default=10)
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--min_lr', type=float, default=1e-5)
-    parser.add_argument('--weight_decay', type=float, default=0.01)
+    parser.add_argument('--weight_decay', type=float, default=0.001)
     parser.add_argument('--bs', type=int, default=128)
 
     args = parser.parse_args()
@@ -53,9 +53,10 @@ if __name__ == '__main__':
             num_embeddings=512,
             hidden_dims=[64, 128, 256],
             img_size=32,
-            encoder_depth=2,
-            decoder_depth=2,
+            encoder_depth=4,
+            decoder_depth=4,
         )
+        input_generator.requires_grad_(False)
         model = BidirectionalTransformer(
             num_patches=64, 
             num_embeds=512, 
@@ -71,18 +72,18 @@ if __name__ == '__main__':
         raise NotImplementedError
     
     # load checkpoint (resume training or evaluation)
+    print("load vqvae from " + vae_path + " to initialize input_generator.")
+    checkpoint = torch.load(vae_path, map_location='cpu')
+    checkpoint_model = checkpoint['model_state_dict']
+    msg = input_generator.vqvae.load_state_dict(checkpoint_model, strict=False)
+    print(msg)
+    
     if args.resume or ('test' in args.mode):
         checkpoint = torch.load(args.ckpt, map_location='cpu')
         print("Loading pre-trained checkpoint from: %s" % args.ckpt)
         checkpoint_model = checkpoint['model_state_dict']
         msg = model.load_state_dict(checkpoint_model, strict=False)
         print(msg)
-
-        # checkpoint = torch.load(vae_path, map_location='cpu')
-        # print("Loading pre-trained vqvae from: %s" % vae_path)
-        # checkpoint_model = checkpoint['model_state_dict']
-        # msg = vqvae.load_state_dict(checkpoint_model, strict=False)
-        # print(msg)
 
     # device
     if torch.cuda.is_available():

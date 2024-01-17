@@ -18,7 +18,8 @@ def test_transformer(model, vqvae, args, MAXNUM=100):
 
     idx = 0
     dir = f'visualize/{args.description}'
-    os.makedirs(dir)
+    if not os.path.exists(dir):
+        os.makedirs(dir)
 
     for iter in range(MAXNUM):
         # initialize
@@ -31,15 +32,17 @@ def test_transformer(model, vqvae, args, MAXNUM=100):
         tokens_map = torch.zeros((N, L, D), dtype=float) # 初始化可以随意，mask_token在infer时加
         mask = torch.zeros((N, L), dtype=bool)
         mask[:, :] = True # 初始全部mask
-        tokens_map = tokens_map.to(args.device)
+        tokens_map = tokens_map.to(args.device).float()
         mask = mask.to(args.device)
+
         for t in range(1, T + 1):
             # foward
             print(f"iter {t}...")
-            tokens_map = tokens_map.float()
+            # tokens_map = tokens_map.float()
             new_index_map, new_mask = model.infer_one_iter(tokens_map, mask, t, T)
             # 迭代更新token和mask
             mask = new_mask
+            
             for n in range(N):
                 for patch in range(L):
                     index = new_index_map[n, patch]
@@ -50,31 +53,9 @@ def test_transformer(model, vqvae, args, MAXNUM=100):
             latent = tokens_map.permute(0, 2, 1).contiguous().view(N, D, H, W)
             recons = vqvae.decode(latent)
 
-            idx = 0
-            for i in range(recons.shape[0]):
-                img_recons = recons[i]
-                path_recons = dir + f'/{idx}_{t}.jpg'
-                save_img(img_recons, path_recons)
-                idx += 1
-        
-
-
-    # for iter, (inputs, _) in enumerate(test_loader):
-        
-    #     # forward
-    #     inputs = inputs.to(args.device)
-    #     recons = model.reconstruct(inputs)
-
-    #     loss = F.mse_loss(recons, inputs)
-    #     meter_loss.update(loss.item())
-
-    #     for i in range(recons.shape[0]):
-    #         img, img_recons = inputs[i], recons[i]
-    #         path, path_recons = dir + f'/{idx}_original.jpg', dir + f'/{idx}_recons.jpg'
-    #         save_img(img, path)
-    #         save_img(img_recons, path_recons)
-    #         idx += 1
-    
-    #     if idx > MAXNUM: break
-
-    # print(f'Finished. Mean MSE Loss: {meter_loss.avg()}')
+        idx = 0
+        for i in range(recons.shape[0]):
+            img_recons = recons[i]
+            path_recons = dir + f'/{idx}.jpg'
+            save_img(img_recons, path_recons)
+            idx += 1

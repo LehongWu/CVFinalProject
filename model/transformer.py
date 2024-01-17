@@ -37,8 +37,22 @@ class InputGenerator(nn.Module):
                            activation_layer=activation_layer, 
                            norm_layer=norm_layer, 
                            kwargs=kwargs)
-        self.vqvae.load_state_dict(torch.load(vae_path), strict=False)
+
+        self.vqvae.requires_grad_(False)
+        # print("load vqvae from " + vae_path + " to initialize input_generator.")
+        # self.vqvae.load_state_dict(torch.load(vae_path), strict=False)
+
+    def reconstruct(self, input):
+
+        encoding = self.vqvae.encode(input)[0]
+
+        quantized_inputs, vq_loss = self.vqvae.vq_layer(encoding)
+
+        recons = self.vqvae.decode(quantized_inputs)
         
+        return recons
+    
+
     def generate_tokens(self, input):
         """
         Using pretrained VQ-VAE to map input to tokens
@@ -51,6 +65,7 @@ class InputGenerator(nn.Module):
         # result = result.permute(0, 2, 3, 1).contiguous().view(N, H * W, D)
         return quantized_result
         
+
     def generate_mask(self, N, L, mask_ratio):
         """
         generate mask for input tokens
@@ -74,6 +89,7 @@ class InputGenerator(nn.Module):
         
         return mask
     
+
     def generate_gt(self, tokens, mask):
         """
         generate ground truth for input tokens
@@ -84,9 +100,10 @@ class InputGenerator(nn.Module):
         gt: ground truth(-1 for NOT masked tokens) for input tokens
         """
         gt = self.vqvae.vq_layer.forward_index(tokens)
-        gt[mask] = -1
+        gt[~mask] = -1
         return gt
     
+
     def generate_all(self, input, mask_ratio):
         """
         combine the three functions
@@ -98,7 +115,7 @@ class InputGenerator(nn.Module):
 
         gt = self.generate_gt(tokens, mask)
 
-        tokens = tokens.permute(0, 2, 3, 1).contiguous().view(N, H * W, D)
+        tokens = tokens.contiguous().view(N, D, -1).permute(0, 2, 1)
 
         return tokens, mask, gt
 
@@ -237,34 +254,6 @@ class Block(nn.Module):
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
         return x
-    
-# class ImageEmbed(nn.Module):
-#     def __init__(self, 
-#                  dim_in: int, 
-#                  hidden_dims: List = None):
-#         super().__init__() 
-#         modules = []
-#         if hidden_dims is None:
-#             hidden_dims = [128, 256]
-        
-#         for h_dim in hidden_dims:
-#             modules.append(
-#                 nn.Sequential(
-#                     nn.Conv2d(dim_in, out_channels=h_dim, kernel_size=4, stride=2, padding=1),
-#                     nn.LeakyReLU()
-#                 )
-#             )
-#             dim_in = h_dim
-        
-#         self.embed = nn.Sequential(*modules)
-    
-#     def forward(self, x):
-#         """
-#         x: [N, D, H, W]
-#         output: [N, D_feat, H', W']
-#         """
-#         return self.embed(x)
-
 
 class BidirectionalTransformer(nn.Module):
     def __init__(self, 
@@ -287,32 +276,21 @@ class BidirectionalTransformer(nn.Module):
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
         self.mask_token = nn.Parameter(torch.zeros(embed_dim))
+
+        self.embed_layer = nn.Linear(embed_dim, embed_dim * 2)
+
         self.blocks = nn.ModuleList([
-            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            Block(embed_dim * 2, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
             for i in range(depth)])
-        self.norm = norm_layer(embed_dim)
-        self.pred_head = nn.Linear(embed_dim, num_embeds)
+        self.norm = norm_layer(embed_dim * 2)
+
+        self.pred_head = nn.Linear(embed_dim * 2, num_embeds)
 
         # 非mask的部分不计入loss，ground truth需置-1
-        self.criterion = nn.CrossEntropyLoss(ignore_index=-1, label_smoothing=0.1) 
+        self.criterion = nn.CrossEntropyLoss(ignore_index=-1) 
         
         
     def initialize_weights(self):
-        # initialization
-        # initialize (and freeze) pos_embed by sin-cos embedding
-        # pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
-        # self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
-
-        # decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
-        # self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
-
-        # # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
-        # w = self.patch_embed.proj.weight.data
-        # torch.nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-
-        # # timm's trunc_normal_(std=.02) is effectively normal_(std=0.02) as cutoff is too big (2.)
-        # torch.nn.init.normal_(self.cls_token, std=.02)
-        # torch.nn.init.normal_(self.mask_token, std=.02)
         torch.nn.init.normal_(self.pos_embed, std=.02)
 
         # initialize nn.Linear and nn.LayerNorm
@@ -351,6 +329,8 @@ class BidirectionalTransformer(nn.Module):
         """
         x = self.process_mask(x, mask)
         x = x + self.pos_embed
+        x = self.embed_layer(x)
+
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
@@ -369,19 +349,23 @@ class BidirectionalTransformer(nn.Module):
         """
         N, L, D = x.shape
         indexes = self.forward_index(x, mask)
+        pred_indexes = torch.argmax(indexes, dim=2) # [N, L]
         indexes = indexes.contiguous().view(N * L, self.num_embeds)
         gt = gt.contiguous().view(N * L)
         loss = self.criterion(indexes, gt).mean()
-        return loss
+        return loss, pred_indexes
         
     def infer_one_iter(self, x, mask, t, T):
         """
+        For test.
         Input: 
         x - embedded features(w/o mask tokens): [N, H' * W', D]
         mask - mask matrix, TRUE for mask and FALSE for no mask: [N, H' * W']
         """
         N, L, D = x.shape
-        n_pred = int(t * L / T)
+        n_pred = L - int(L * math.cos((math.pi / 2) * (t * 1. / T))) # 每轮保留的token数（包括之前轮预测的）
+        # n_pred = int(L * t / T)
+        n_keep = max(1, int(self.num_embeds * math.exp(-2. + (3. * -(t / T))))) # （每个位置随机选取index的宽容度，递减）
         with torch.no_grad():
             indexes = self.forward_index(x, mask)
             indexes = torch.softmax(indexes, dim=2)
@@ -393,21 +377,23 @@ class BidirectionalTransformer(nn.Module):
             index_score_list = torch.zeros(L, dtype=float) # 选择的token的置信度
             for patch in range(L):
                 if mask[n, patch]: # masked tokens
-                    index_keep = torch.argsort(indexes[n, patch], descending=True)[:8] # 降序排序，保留概率高的几个
-                    select_index = index_keep[random.randint(0, 7)]
+                    index_keep = torch.argsort(indexes[n, patch], descending=True)[:n_keep] # 降序排序，保留概率高的几个
+                    id = random.randint(0, n_keep - 1)
+                    select_index = index_keep[id] # 随机选取一个置信度较高的token
                     select_index_list[patch] = select_index
                     index_score_list[patch] = indexes[n, patch, select_index]
-                    print(index_score_list)
                 else:
                     select_index_list[patch] = -1
                     index_score_list[patch] = 1.
-            
-            patch_sorted = torch.argsort(index_score_list, descending=True) # 按置信度降序排序
+
+            noise = torch.rand_like(index_score_list, device=index_score_list.device)
+            patch_sorted = torch.argsort(index_score_list + noise, descending=True) # 按置信度降序排序
             patch_keep = patch_sorted[:n_pred] # 保留置信度高的patch的预测结果
             for patch in patch_keep:
                 if mask[n, patch]:
                     index = select_index_list[patch]
                     new_index_map[n, patch] = index
+                    # print(indexes[n, patch, index])
                     new_mask[n, patch] = False # 该位置产生预测结果，不再mask
         
         return new_index_map, new_mask
