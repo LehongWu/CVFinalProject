@@ -3,3 +3,4 @@ ckpt
 __pycache__
 datasets
 assets
+logs

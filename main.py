@@ -45,21 +45,26 @@ if __name__ == '__main__':
     
     # get model
     if args.model == 'vqvae':
-        img_size = 32
-        if args.dataset == 'tiny_image_net':
-            img_size = 64
+        if args.dataset =='cifar10':
+            model = VQVAE(
+                in_channels=3, embedding_dim=256, num_embeddings=512,
+                hidden_dims=[64, 128, 256], img_size=32,
+                encoder_depth=4, decoder_depth=4,
+            )
+        elif args.dataset == 'tiny_image_net':
+            model = VQVAE(
+                in_channels=3, embedding_dim=256, num_embeddings=512,
+                hidden_dims=[32, 64, 128, 256], img_size=64,
+                encoder_depth=4, decoder_depth=4,
+            )
         elif args.dataset == 'mnist':
-            img_size = 28
-        model = VQVAE(
-            in_channels=3,
-            embedding_dim=256,
-            num_embeddings=512,
-            hidden_dims=[64, 128, 256],
-            img_size=img_size,
-            encoder_depth=2,
-            decoder_depth=2,
-        )
-        # will be replaced by using config (yaml or py) 
+            model = VQVAE(
+                in_channels=1, embedding_dim=64, num_embeddings=256,
+                hidden_dims=[16, 32, 64], img_size=28,
+                encoder_depth=1, decoder_depth=1,
+            )
+        else:
+            raise NotImplementedError
     else:
         raise NotImplementedError
     
