@@ -2,6 +2,5 @@ exp
 ckpt
 __pycache__
 datasets
-visualize
 assets
-transformer_ckpt
+logs
