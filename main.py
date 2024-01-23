@@ -54,8 +54,8 @@ if __name__ == '__main__':
         elif args.dataset == 'tiny_image_net':
             model = VQVAE(
                 in_channels=3, embedding_dim=256, num_embeddings=512,
-                hidden_dims=[32, 64, 128, 256], img_size=64,
-                encoder_depth=4, decoder_depth=4,
+                hidden_dims=[64, 128, 256], img_size=64,
+                encoder_depth=5, decoder_depth=5,
             )
         elif args.dataset == 'mnist':
             model = VQVAE(
