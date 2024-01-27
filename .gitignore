@@ -4,3 +4,5 @@ __pycache__
 datasets
 assets
 logs
+visualize
+transformer_ckpt

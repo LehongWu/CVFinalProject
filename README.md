@@ -2,11 +2,25 @@
 
 ## Code Files & Folders 
 main.py: run the code  
-engine_train/test.py: contain the training/testing function  
+
+engine_train/test.py: contain the training/testing function of VQVAE
+
+main_transformer.py: run the code of the generation model
+
+engine_train/test_transformer.py: contain the training/testing function of MASKGIT
+
+main_classify.py: run the code of the classification model  
+
+engine_train/test_classify.py: contain the training/testing function of the classification model
+
 model: network architectures  
+- VQVAE_ver3.py and VQVAE4transformer_ver3.py are for TinyImageNet Dataset due to some differences in VQVAE. Please note that the models in these two files are not compatible with the version without suffix. You need to manually modify the relevant import code when using TinyImageNet.
+
 utils: tools (visualize/metrics/...)  
 |-- metrics.py(calculating FID): require package **pytorch_fid**  
+
 feeder: dataloader  
+
 maskgit_reference_code: code framework provided by teacher(useless)  
 
 ## Other Files & Folders

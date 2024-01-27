@@ -9,12 +9,13 @@ from tqdm import tqdm
 import os
 from datetime import datetime
 
+from model.VQVAE4transformer import VQVAE
 from model.transformer import InputGenerator, BidirectionalTransformer, ConditionBidirectionalTransformer
 from feeder.cifar10 import get_cifar10_loader
 from feeder.tiny_image_net import get_tiny_image_net_loader
 from feeder.mnist import get_mnist_loader
-from engine_train_transformer import train_transformer
-from engine_test_transformer import test_transformer
+from engine_train_classify import train_transformer
+from engine_test_classify import test_transformer
 
 
 if __name__ == '__main__':
@@ -30,9 +31,9 @@ if __name__ == '__main__':
     # model
     parser.add_argument('--model', type=str, default='transformer')
     parser.add_argument('--resume', action='store_true')
-    parser.add_argument('--ckpt', type=str, default='./transformer_ckpt\mnist/transformer_mixfeat\ep99.pt')
+    parser.add_argument('--ckpt', type=str, default='./transformer_ckpt\mnist/transformer_lr0.0003_classify\ep39.pt')
     # training
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=40)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--warmup_epochs', type=int, default=5)
     parser.add_argument('--min_lr_epochs', type=int, default=10)
@@ -46,7 +47,7 @@ if __name__ == '__main__':
     
     # get model
     if args.model == 'transformer':
-        vae_path = './assets/VQVAE-mnist-depth1-ep99.pt'
+        vae_path = './assets\VQVAE-mnist-depth1-ep99.pt'
         input_generator = InputGenerator(
             vae_path=vae_path, 
             in_channels=1, embedding_dim=64, num_embeddings=256,
@@ -58,30 +59,6 @@ if __name__ == '__main__':
             num_patches=49, 
             num_embeds=256, 
             embed_dim=64,
-            depth=8, 
-            mlp_ratio=4,
-            num_heads=8, 
-            norm_layer=nn.LayerNorm,
-        )
-        vqvae = input_generator.vqvae
-        # will be replaced by using config (yaml or py) 
-    elif args.model == 'cond_transformer':
-        vae_path = './assets/VQVAE-mnist-depth1-ep99.pt'
-        input_generator = InputGenerator(
-            vae_path=vae_path, 
-            in_channels=1,
-            embedding_dim=64,
-            num_embeddings=256,
-            hidden_dims=[16, 32, 64],
-            img_size=28,
-            encoder_depth=1,
-            decoder_depth=1,
-        )
-        input_generator.requires_grad_(False)
-        model = ConditionBidirectionalTransformer(
-            num_patches=49, 
-            num_embeds=256, 
-            embed_dim=64,
             num_class=10,
             depth=8, 
             mlp_ratio=4,
@@ -89,6 +66,7 @@ if __name__ == '__main__':
             norm_layer=nn.LayerNorm,
         )
         vqvae = input_generator.vqvae
+        # will be replaced by using config (yaml or py) 
     else:
         raise NotImplementedError
     
@@ -142,7 +120,7 @@ if __name__ == '__main__':
     if args.mode == 'train_transformer':
         train_transformer(model, input_generator, train_loader, optimizer, writer, args)
     elif args.mode == 'test_transformer':
-        test_transformer(model, vqvae, args, 10000)
+        test_transformer(model, input_generator, test_loader, args)
     else:
         raise NotImplementedError
     

@@ -5,6 +5,7 @@ from typing import List, Callable, Union, Any, TypeVar
 import torch.nn.functional as F
 from abc import abstractmethod
 from .drop import DropPath
+# from .VQVAE4transformer_ver3 import VQVAE # use this when tiny image net
 from .VQVAE4transformer import VQVAE
 import math
 import warnings
@@ -256,7 +257,7 @@ class Block(nn.Module):
         return x
 
 class BidirectionalTransformer(nn.Module):
-    def __init__(self, 
+    def __init__(self,
                  num_patches: int, # 输入的序列长度（包括mask的）
                  num_embeds: int, # codebook长度
                  embed_dim: int, # 特征维数
@@ -264,6 +265,7 @@ class BidirectionalTransformer(nn.Module):
                  mlp_ratio: float, # MLP层隐藏层比输入维数的比率
                  num_heads: int, # attention头数
                  norm_layer: nn.Module, # 归一化方式，默认layer norm
+                 num_class=10, # 类别数
                  ):
         super().__init__()
         # positional embedding
@@ -276,6 +278,7 @@ class BidirectionalTransformer(nn.Module):
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
         self.mask_token = nn.Parameter(torch.zeros(embed_dim))
+        self.mix_weight = nn.Parameter(torch.ones(3)) # 特征融合的权重
 
         self.embed_layer = nn.Linear(embed_dim, embed_dim * 2)
 
@@ -285,9 +288,11 @@ class BidirectionalTransformer(nn.Module):
         self.norm = norm_layer(embed_dim * 2)
 
         self.pred_head = nn.Linear(embed_dim * 2, num_embeds)
+        self.classify_head = nn.Linear(num_patches * embed_dim * 2, num_class)
 
         # 非mask的部分不计入loss，ground truth需置-1
         self.criterion = nn.CrossEntropyLoss(ignore_index=-1) 
+        self.class_criterion = nn.CrossEntropyLoss()
         
         
     def initialize_weights(self):
@@ -322,7 +327,7 @@ class BidirectionalTransformer(nn.Module):
     def forward_index(self, x, mask):
         """
         input: 
-        x - embedded features(w/ mask tokens): [N, H' * W', D]
+        x - embedded features(w/o mask tokens): [N, H' * W', D]
         mask - mask matrix, TRUE for mask and FALSE for no mask: [N, H' * W']
         output: 
         indexes - predicted indexes for all tokens: [N, H' * W', num_embeds]
@@ -339,6 +344,43 @@ class BidirectionalTransformer(nn.Module):
 
         return indexes
     
+    def forward_index_mixfeat(self, x, mask): # 特征融合版本
+        """
+        input: 
+        x - embedded features(w/o mask tokens): [N, H' * W', D]
+        mask - mask matrix, TRUE for mask and FALSE for no mask: [N, H' * W']
+        output: 
+        indexes - predicted indexes for all tokens: [N, H' * W', num_embeds]
+        """
+        x = self.process_mask(x, mask)
+        x = x + self.pos_embed
+        x = self.embed_layer(x)
+        feat = torch.zeros_like(x, device=x.device)
+        for i, blk in enumerate(self.blocks):
+            x = blk(x)
+            if i % 2 == 1 and i != 7:
+                feat += x * self.mix_weight[i // 2]
+        feat = (feat + x) / (self.mix_weight.sum() + 1.)
+        x = self.norm(feat)
+
+        indexes = self.pred_head(x)
+
+        return indexes
+    
+    def forward_class(self, x):
+        with torch.no_grad():
+            x = x + self.pos_embed
+            x = self.embed_layer(x)
+
+            for blk in self.blocks:
+                x = blk(x)
+            x = self.norm(x)
+
+        feat = x.contiguous().view(x.shape[0], -1)
+        classes = self.classify_head(feat)
+
+        return classes
+    
     def forward_loss(self, x, gt, mask):
         """
         input:
@@ -348,6 +390,7 @@ class BidirectionalTransformer(nn.Module):
         loss - cross entropy loss between predicted indexes and ground truth(only masked ones) 
         """
         N, L, D = x.shape
+        # indexes = self.forward_index(x, mask)
         indexes = self.forward_index(x, mask)
         pred_indexes = torch.argmax(indexes, dim=2) # [N, L]
         indexes = indexes.contiguous().view(N * L, self.num_embeds)
@@ -355,6 +398,13 @@ class BidirectionalTransformer(nn.Module):
         loss = self.criterion(indexes, gt).mean()
         return loss, pred_indexes
         
+    def forward_class_loss(self, x, labels):
+        N, L, D = x.shape
+        classes = self.forward_class(x)
+        loss = self.class_criterion(classes, labels)
+        return loss, classes
+
+
     def infer_one_iter(self, x, mask, t, T):
         """
         For test.
@@ -398,6 +448,154 @@ class BidirectionalTransformer(nn.Module):
         
         return new_index_map, new_mask
 
+class ConditionBidirectionalTransformer(nn.Module): # 带label作为条件输入的
+    def __init__(self, 
+                 num_patches: int, # 输入的序列长度（包括mask的）
+                 num_embeds: int, # codebook长度
+                 embed_dim: int, # 特征维数
+                 num_class: int, # label类数
+                 depth: int, # attention层数
+                 mlp_ratio: float, # MLP层隐藏层比输入维数的比率
+                 num_heads: int, # attention头数
+                 norm_layer: nn.Module, # 归一化方式，默认layer norm
+                 ):
+        super().__init__()
+        # positional embedding
+        # transfomer layer
+        # read learned codebook 
+        # ......
+        self.num_patches = num_patches
+        self.num_embeds = num_embeds
+        self.embed_dim = embed_dim
+
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        self.mask_token = nn.Parameter(torch.zeros(embed_dim))
+        self.cond_embed = nn.Parameter(torch.zeros(num_class, embed_dim))
+
+        self.embed_layer = nn.Linear(embed_dim, embed_dim * 2)
+
+        self.blocks = nn.ModuleList([
+            Block(embed_dim * 2, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            for i in range(depth)])
+        self.norm = norm_layer(embed_dim * 2)
+
+        self.pred_head = nn.Linear(embed_dim * 2, num_embeds)
+
+        # 非mask的部分不计入loss，ground truth需置-1
+        self.criterion = nn.CrossEntropyLoss(ignore_index=-1) 
+        
+        
+    def initialize_weights(self):
+        torch.nn.init.normal_(self.pos_embed, std=.02)
+        torch.nn.init.normal_(self.mask_token, std=.02)
+        torch.nn.init.normal_(self.cond_embed, std=.02)
+
+        # initialize nn.Linear and nn.LayerNorm
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            # we use xavier_uniform following official JAX ViT:
+            torch.nn.init.xavier_uniform_(m.weight)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
+    def process_mask(self, x, mask):
+        """
+        input:
+        x - embedded features(w/o mask tokens): [N, H' * W', D]
+        mask - mask matrix, TRUE for mask and FALSE for no mask: [N, H' * W']
+        output:
+        x - embedded features(w/ mask tokens): [N, H' * W', D]
+        """
+        # print(type(x[0, 0, 0].item()), type(mask[0, 0].item()), type(self.mask_token[0].item()))
+        x[mask] = self.mask_token
+
+        return x
+
+    def forward_index(self, x, mask, label):
+        """
+        input: 
+        x - embedded features(w/ mask tokens): [N, H' * W', D]
+        mask - mask matrix, TRUE for mask and FALSE for no mask: [N, H' * W']
+        output: 
+        indexes - predicted indexes for all tokens: [N, H' * W', num_embeds]
+        """
+        x = self.process_mask(x, mask)
+        x = x + self.pos_embed
+        for n in range(x.shape[0]):
+            x[n] += self.cond_embed[label[n].item()] 
+        x = self.embed_layer(x)
+
+        for blk in self.blocks:
+            x = blk(x)
+        x = self.norm(x)
+
+        indexes = self.pred_head(x)
+
+        return indexes
+    
+    def forward_loss(self, x, gt, mask, label):
+        """
+        input:
+        x - embedded features(w/o mask tokens): [N, H' * W', D]
+        gt - ground truth indexes for tokens(-1 for no masked tokens): [N, H' * W']
+        output:
+        loss - cross entropy loss between predicted indexes and ground truth(only masked ones) 
+        """
+        N, L, D = x.shape
+        indexes = self.forward_index(x, mask, label)
+        pred_indexes = torch.argmax(indexes, dim=2) # [N, L]
+        indexes = indexes.contiguous().view(N * L, self.num_embeds)
+        gt = gt.contiguous().view(N * L)
+        loss = self.criterion(indexes, gt).mean()
+        return loss, pred_indexes
+        
+    def infer_one_iter(self, x, mask, t, T, label):
+        """
+        For test.
+        Input: 
+        x - embedded features(w/o mask tokens): [N, H' * W', D]
+        mask - mask matrix, TRUE for mask and FALSE for no mask: [N, H' * W']
+        """
+        N, L, D = x.shape
+        n_pred = L - int(L * math.cos((math.pi / 2) * (t * 1. / T))) # 每轮保留的token数（包括之前轮预测的）
+        # n_pred = int(L * t / T)
+        n_keep = max(1, int(self.num_embeds * math.exp(-2. + (3. * -(t / T))))) # （每个位置随机选取index的宽容度，递减）
+        with torch.no_grad():
+            indexes = self.forward_index(x, mask, label)
+            indexes = torch.softmax(indexes, dim=2)
+        new_index_map = torch.zeros_like(mask, dtype=int)
+        new_index_map[:, :] = -1
+        new_mask = mask
+        for n in range(N):
+            select_index_list = torch.zeros(L, dtype=int)
+            index_score_list = torch.zeros(L, dtype=float) # 选择的token的置信度
+            for patch in range(L):
+                if mask[n, patch]: # masked tokens
+                    index_keep = torch.argsort(indexes[n, patch], descending=True)[:n_keep] # 降序排序，保留概率高的几个
+                    id = random.randint(0, n_keep - 1)
+                    select_index = index_keep[id] # 随机选取一个置信度较高的token
+                    select_index_list[patch] = select_index
+                    index_score_list[patch] = indexes[n, patch, select_index]
+                else:
+                    select_index_list[patch] = -1
+                    index_score_list[patch] = 1.
+
+            noise = torch.rand_like(index_score_list, device=index_score_list.device)
+            patch_sorted = torch.argsort(index_score_list + noise, descending=True) # 按置信度降序排序
+            patch_keep = patch_sorted[:n_pred] # 保留置信度高的patch的预测结果
+            for patch in patch_keep:
+                if mask[n, patch]:
+                    index = select_index_list[patch]
+                    new_index_map[n, patch] = index
+                    # print(indexes[n, patch, index])
+                    new_mask[n, patch] = False # 该位置产生预测结果，不再mask
+        
+        return new_index_map, new_mask
 
 
             

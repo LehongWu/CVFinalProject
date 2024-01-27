@@ -15,14 +15,13 @@ def train_transformer(model, input_generator, train_loader, optimizer, writer, a
         model: linear classifier or full-connected neural network classifier
         args: configuration
     '''
-
     for epoch in range(args.start_epoch, args.epochs):
 
         # train
         model.train()
         ce_loss = AvgMeter()
-        print(model.mix_weight)
-
+        cnt_correct = 0
+        cnt_total = 0
         for iter, (inputs, labels) in enumerate(train_loader):
 
             # adjusts learning rate
@@ -33,50 +32,18 @@ def train_transformer(model, input_generator, train_loader, optimizer, writer, a
             # embedding and mask
             inputs = inputs.to(args.device)
 
-            mask_ratio = random.random()
-            mask_ratio = max(0.1, mask_ratio)
-            mask_ratio = min(0.9, mask_ratio) # 保证mask ratio不大不小（太小没有意义，太大影响训练）
-
-            tokens, mask, gt = input_generator.generate_all(inputs, mask_ratio)
+            tokens, _, _ = input_generator.generate_all(inputs, 0)
 
             tokens_ = tokens.to(args.device)
-            mask_ = mask.to(args.device)
-            gt_ = gt.to(args.device)
+            labels = labels.to(args.device)
 
             # forward
-            if args.model == 'cond_transformer':
-                loss, pred_indexes = model.forward_loss(tokens_, gt_, mask_, labels) # ce loss
-            elif args.model == 'transformer':
-                loss, pred_indexes = model.forward_loss(tokens_, gt_, mask_) # ce loss
+            loss, pred_classes = model.forward_class_loss(tokens_, labels) # ce loss
             loss.backward()
 
-            # show some results
-            if epoch % 5 == 0 and iter == 1:
-                print("mask ratio:", mask_ratio)
-                N = pred_indexes.shape[0]
-                D = 64
-                H = 7
-                W = 7
-                with torch.no_grad():
-                    pred_tokens = input_generator.vqvae.vq_layer.indexes2tokens(pred_indexes)
-                    pred_tokens[~mask] = tokens_[~mask]
-
-                    latent = pred_tokens.permute(0, 2, 1).contiguous().view(N, D, H, W)
-                    recons = input_generator.vqvae.decode(latent)
-                
-                # 用于可视化训练过程中重建效果的代码
-                dir = dir = f'visualize/transformer/{args.dataset}/reconstruct'
-                if not os.path.exists(dir):
-                    os.makedirs(dir)
-                idx = 0
-                for i in range(recons.shape[0]):
-                    img = inputs[i]
-                    path = dir + f'/{idx}_ori.jpg'
-                    img_recons = recons[i]
-                    path_recons = dir + f'/{idx}_{labels[i].item()}.jpg'
-                    save_img(img, path)
-                    save_img(img_recons, path_recons)
-                    idx += 1
+            # train的准确率
+            cnt_correct += (torch.argmax(pred_classes, dim=1) == labels).sum()
+            cnt_total += labels.shape[0] 
 
             # update statistics
             ce_loss.update(loss.item())
@@ -89,6 +56,8 @@ def train_transformer(model, input_generator, train_loader, optimizer, writer, a
 
             optimizer.step()
         
+        acc = (cnt_correct * 100.) / cnt_total
+        print(f'Train Accuray: {acc:.2f}%')
         # write every epoch
         to_write = {
             "Loss": ce_loss.avg(),
@@ -103,7 +72,7 @@ def train_transformer(model, input_generator, train_loader, optimizer, writer, a
 
         # save checkpoint every k epoch
         if (epoch+1) % args.save_every_epoch == 0 or epoch+1 == args.epochs:
-            save_path = f'transformer_ckpt/{args.dataset}/{args.model}_mixfeat'
+            save_path = f'transformer_ckpt/{args.dataset}/{args.model}_lr{args.lr}_classify'
             os.makedirs(save_path, exist_ok=True)
             save_path += f'/ep{epoch}.pt'
             torch.save({
